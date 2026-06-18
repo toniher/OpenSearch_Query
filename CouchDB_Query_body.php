@@ -23,6 +23,8 @@ class CouchDB_Query {
 		$attrs["query"] = "";
 		$attrs["extra"] = "";
 		$attrs["prefix"] = "";
+		$attrs["prefixurl"] = "";
+		$attrs["prefixcondurl"] = "";
 		$attrs["full"] = "";
 		$attrs["class"] = "wikitable sortable jquery-tablesorter";
 		$attrs["db"] = \MediaWiki\MediaWikiServices::getInstance()->getMainConfig()->get( 'DBname' );
