@@ -1,7 +1,5 @@
 # Claude local config (not for VCS)
 CLAUDE.local.md
-# To assess if we remove it
-CLAUDE.md
 .claude/
 
 # Composer (if ever introduced)
