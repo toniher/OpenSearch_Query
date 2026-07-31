@@ -2,5 +2,5 @@
 	"@metadata": {
 		"authors": [ "Toniher" ]
 	},
-	"CouchDB_Query-desc": "Convenient parser function for setting up form markup in MediaWiki"
+	"OpenSearch_Query-desc": "Query OpenSearch indices and render results as tables or fields inside wiki pages"
 }

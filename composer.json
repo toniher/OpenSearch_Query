@@ -1,16 +1,15 @@
 {
-	"name": "mediawiki/couchdb-query",
+	"name": "mediawiki/opensearch-query",
 	"type": "mediawiki-extension",
-	"description": "MediaWiki extension for performing CouchDB queries (map/reduce views, CouchDB-Lucene and CouchDB Nouveau full-text search) from within wiki pages.",
+	"description": "MediaWiki extension for querying OpenSearch indices (view-equivalent queries, query_string full-text search) and single-document fetches from within wiki pages.",
 	"keywords": [
 		"mediawiki",
-		"couchdb",
-		"lucene",
-		"nouveau",
+		"opensearch",
+		"search",
 		"extension",
 		"parserhook"
 	],
-	"homepage": "https://github.com/toniher/CouchDB_Query",
+	"homepage": "https://github.com/toniher/OpenSearch_Query",
 	"license": "GPL-2.0-or-later",
 	"authors": [
 		{
@@ -20,14 +19,14 @@
 		}
 	],
 	"support": {
-		"issues": "https://github.com/toniher/CouchDB_Query/issues",
-		"source": "https://github.com/toniher/CouchDB_Query"
+		"issues": "https://github.com/toniher/OpenSearch_Query/issues",
+		"source": "https://github.com/toniher/OpenSearch_Query"
 	},
 	"require": {
 		"php": ">=7.4",
 		"composer/installers": ">=1.0.1"
 	},
 	"extra": {
-		"installer-name": "CouchDB_Query"
+		"installer-name": "OpenSearch_Query"
 	}
 }

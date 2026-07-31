@@ -5,13 +5,28 @@
 	var inputsave = "";
 	var timer, delay = 700;
 
+	var TABLE_SELECTOR = ".opensearch-query-table, .couchdb-query-table";
+	var INPUT_SELECTOR = ".opensearch-query-input, .couchdb-query-input";
+
+	// Legacy `type` values (also literal API action names) map onto the two canonical
+	// OpenSearch actions. Templates written for CouchDB keep working unchanged.
+	var ACTION_ALIASES = {
+		"couchdb-query": "opensearch-query",
+		"couchdb-lucene-query": "opensearch-search",
+		"couchdb-nouveau-query": "opensearch-search"
+	};
+
+	function normaliseAction( type ) {
+		return ACTION_ALIASES.hasOwnProperty( type ) ? ACTION_ALIASES[ type ] : type;
+	}
+
 	$(document).ready(function(){
 		iterateTable();
 	});
 
 
 	// Look for changes in the value
-	$( ".couchdb-query-table" ).on( "propertychange change click keyup input paste", "input", function(event){
+	$( TABLE_SELECTOR ).on( "propertychange change click keyup input paste", "input", function(event){
 
 		var _this = $(this);
 		clearTimeout(timer);
@@ -22,7 +37,7 @@
 			if ( inputsave !== $(_this).val()) {
 				// Updated stored value
 				inputsave = $(_this).val();
-				var div = $( _this ).parents(".couchdb-query-table").first();
+				var div = $( _this ).parents(TABLE_SELECTOR).first();
 
 				$(div).data('text', inputsave );
 				if ( inputsave.length > 2 ) {
@@ -35,9 +50,9 @@
 	});
 
 	// Next, previous, detecting data-total and data-limit, etc.
-	$( ".couchdb-query-table" ).on( "click", ".bar > .next", function() {
+	$( TABLE_SELECTOR ).on( "click", ".bar > .next", function() {
 
-		var div = $( this ).parents(".couchdb-query-table").first();
+		var div = $( this ).parents(TABLE_SELECTOR).first();
 		var limit = parseInt( $(div).data('limit'), 10 );
 		var skip = parseInt( $(div).data('skip'), 10 );
 
@@ -46,9 +61,9 @@
 		iterateTable();
 	});
 
-	$( ".couchdb-query-table" ).on( "click", ".prev", function() {
+	$( TABLE_SELECTOR ).on( "click", ".prev", function() {
 
-		var div = $( this ).parents(".couchdb-query-table").first();
+		var div = $( this ).parents(TABLE_SELECTOR).first();
 		var limit = parseInt( $(div).data('limit'), 10 );
 		var skip = parseInt( $(div).data('skip'), 10 );
 
@@ -62,7 +77,7 @@
 		iterateTable();
 	});
 
-	$( ".couchdb-query-table" ).on( "change click keyup input paste", ".couchdb-query-input", function() {
+	$( TABLE_SELECTOR ).on( "change click keyup input paste", INPUT_SELECTOR, function() {
 		/** Trigger change **/
 		iterateTable();
 	});
@@ -70,7 +85,7 @@
 
 	function iterateTable() {
 
-		$( ".couchdb-query-table" ).each( function( i ) {
+		$( TABLE_SELECTOR ).each( function( i ) {
 			var div = this;
 
 			var limit = $(div).data('limit');
@@ -84,11 +99,23 @@
 			var db = $(div).data('db');
 			var text = $(div).data('text');
 			var extra = $(div).data('extra');
+			var raw = $(div).data('raw');
+
+			// Always talk to the canonical actions, regardless of which alias a page was written
+			// against.
+			type = normaliseAction( type );
 
 			var prefix = processPrefix( $(div).data('prefix') );
 			var prefixurl = processPrefix( $(div).data('prefixurl') );
 			var prefixcondurl = $(div).data('prefixcondurl');
 
+			var rawFields = [];
+			if ( raw ) {
+				var raws = raw.split(",");
+				for ( var rr = 0; rr < raws.length; rr = rr + 1 ) {
+					rawFields.push( raws[rr].trim() );
+				}
+			}
 
 			var full = false;
 
@@ -132,7 +159,7 @@
 					params["skip"] = skip;
 				}
 
-				if ( type.indexOf("lucene") > -1 || type.indexOf("nouveau") > -1 ) {
+				if ( type === "opensearch-search" ) {
 					params["q"] = subsTextQuery( query, text );
 
 					if ( extra ) {
@@ -167,11 +194,13 @@
 					fields.push( fieldse[s].trim() );
 				}
 
+				var queryValue = params["q"] || params["keys"] || params["key"] || "";
+				var cacheKey = "opensearch-query-full:" + db + ":" + index + ":" + type + ":" + queryValue;
+
 				if ( params['q'].search(/\$\d/gi) < 1 ) {
 
 					var posting = $.get( mw.config.get( "wgScriptPath" ) + "/api.php", params );
 					posting.done(function( data ) {
-						localStorage.clear();
 
 						if ( data[type].status === "OK" ) {
 							if ( data[type].count ) {
@@ -198,15 +227,15 @@
 								if ( data[type].results.length > 0 ) {
 
 									if ( full ) {
-										if ( ! localStorage.results ) {
-											localStorage.results = JSON.stringify( data[type].results );
+										if ( ! sessionStorage.getItem( cacheKey ) ) {
+											sessionStorage.setItem( cacheKey, JSON.stringify( data[type].results ) );
 										}
 									}
 
-									let stuffResults = getResultsStuff( data[type].results, full, skip, limit );
+									let stuffResults = getResultsStuff( data[type].results, full, skip, limit, cacheKey );
 
 									if ( stuffResults && stuffResults.length > 0 ) {
-										var table = generateResultsTable( stuffResults, tableclass, header, fields, prefix, prefixurl, prefixcondurl );
+										var table = generateResultsTable( stuffResults, tableclass, header, fields, prefix, prefixurl, prefixcondurl, rawFields );
 										$(div).append( table );
 										// generateSMWTable( $(div).children("table"), fields );
 										$(div).children("table").tablesorter(); //Let's make table sortable
@@ -230,14 +259,16 @@
 		});
 	}
 
-	function getResultsStuff( results, full, skip, limit ) {
+	function getResultsStuff( results, full, skip, limit, cacheKey ) {
 
 		let outcome = [];
 
 		if ( full ) {
 
-			if ( localStorage.results ) {
-				let jsonObj = JSON.parse( localStorage.results );
+			var cached = sessionStorage.getItem( cacheKey );
+
+			if ( cached ) {
+				let jsonObj = JSON.parse( cached );
 
 				if ( skip == "" ) {
 					skip = 0;
@@ -275,6 +306,12 @@
 
 	}
 
+	// query_string reserves these characters; each must be individually backslash-escaped or the
+	// cluster rejects the query outright (e.g. mid-typing input like "foo AND").
+	function escapeQueryString( text ) {
+		return text.replace( /([+\-=&|><!(){}[\]^"~*?:\\/])/g, "\\$1" );
+	}
+
 	function subsTextQuery( query, text ) {
 
 		if ( text ) {
@@ -282,11 +319,13 @@
 				// code for processing javascript
 				var jsfunc = query;
 				jsfunc = jsfunc.replace("javascript:", "");
-				query = window["couchjsfunc"][jsfunc](text);
+				var dispatch = ( window.opensearchjsfunc && window.opensearchjsfunc[jsfunc] )
+					? window.opensearchjsfunc
+					: window.couchjsfunc;
+				query = dispatch[jsfunc](text);
 			} else {
-				// First escape :
-				text = text.replace( /:/g, "\\:" );
-				// Then actual replacement
+				// Escape query_string reserved characters, then substitute
+				text = escapeQueryString( text );
 				query = query.replace( /\$1/g, text );
 			}
 		}
@@ -350,7 +389,7 @@
 				querystr = " data-query=\""+$(field).data('query')+"\"";
 			}
 
-			out = "<"+tag+typestr+querystr+" class='couchdb-query-input'>";
+			out = "<"+tag+typestr+querystr+" class='opensearch-query-input couchdb-query-input'>";
 
 			var selected = "";
 			if ( $(field).data('default') ) {
@@ -379,7 +418,7 @@
 	function retrieveExtraFields( div ) {
 
 		var extraq = "";
-		$(div).find(".couchdb-query-input").each( function(i) {
+		$(div).find(INPUT_SELECTOR).each( function(i) {
 			if ( $(this).data('query') ) {
 				var val = $(this).val();
 				if ( val && val !== '' ) {
@@ -393,7 +432,16 @@
 		return extraq;
 	}
 
-	function generateResultsTable( results, tableclass, header, fields, prefix, prefixurl, prefixcondurl ) {
+	function escapeHtml( value ) {
+		return String( value )
+			.replace( /&/g, "&amp;" )
+			.replace( /</g, "&lt;" )
+			.replace( />/g, "&gt;" )
+			.replace( /"/g, "&quot;" )
+			.replace( /'/g, "&#39;" );
+	}
+
+	function generateResultsTable( results, tableclass, header, fields, prefix, prefixurl, prefixcondurl, rawFields ) {
 
 		var table = "<table class='" + tableclass + "'>";
 		table = table + "<thead><tr>";
@@ -406,7 +454,7 @@
 
 		for ( var r = 0; r < results.length; r = r + 1 ) {
 
-			var rowstr = generateRowTable( results[r], fields, "td", prefix, prefixurl, prefixcondurl );
+			var rowstr = generateRowTable( results[r], fields, "td", prefix, prefixurl, prefixcondurl, rawFields );
 			table = table + "<tr>" + rowstr + "</tr>";
 		}
 
@@ -435,7 +483,7 @@
 
 		let parts = prefixcondurl.split( "," );
 
-		for( part of parts ) {
+		for( let part of parts ) {
 
 			let assigns = part.split( ":" );
 
@@ -505,8 +553,10 @@
 
 	}
 
-	function generateRowTable( result, fields, tag, prefix, prefixurl, prefixcondurl ){
+	function generateRowTable( result, fields, tag, prefix, prefixurl, prefixcondurl, rawFields ){
 		var str = "";
+
+		rawFields = rawFields || [];
 
 		var prefixHash = getPrefixCondUrl( prefixcondurl );
 
@@ -521,29 +571,29 @@
 			// Check reference part - OK for now
 			if ( field === '*' ) {
 				if ( result.hasOwnProperty("pagename") ) {
-					fieldTxt = result["pagename"];
-					pagename = fieldTxt;
+					pagename = result["pagename"];
+					fieldTxt = escapeHtml( pagename );
 				}
 			} else if ( field === '*link' ) {
 				if ( result.hasOwnProperty("pagename") ) {
 					pagename = result["pagename"];
 					url = mw.config.get( "wgArticlePath" ).replace('$1', pagename );
-					fieldTxt = "<a href='" + url +"'>" + pagename + "</a>";
+					fieldTxt = "<a href='" + url +"'>" + escapeHtml( pagename ) + "</a>";
 				}
 			} else if ( field === '#link' ) {
 				if ( result.hasOwnProperty("pagename") ) {
 					pagename = result["pagename"];
 					var url = mw.config.get( "wgArticlePath" ).replace('$1', pagename );
 
-					pagename_html = pagename.replace(/\@\S+/, "");
-					pagename_html = pagename_html.replace(/^\S+\:/, "");
+					var pagenameHtml = pagename.replace(/\@\S+/, "");
+					pagenameHtml = pagenameHtml.replace(/^\S+\:/, "");
 
-					fieldTxt = "<a href='" + url +"'>" + pagename_html + "</a>";
+					fieldTxt = "<a href='" + url +"'>" + escapeHtml( pagenameHtml ) + "</a>";
 				}
 			}
 			else if ( field === '*score' ) {
 				if ( result.hasOwnProperty("score") ) {
-					fieldTxt = result["score"];
+					fieldTxt = escapeHtml( result["score"] );
 				}
 			} else {
 				var pagelink = false;
@@ -557,51 +607,53 @@
 					cleanpagelink = true;
 				}
 				if ( result.hasOwnProperty("fields") && result["fields"].hasOwnProperty(field) ) {
-					fieldTxt = result["fields"][field];
+
+					var rawValue = result["fields"][field];
 
 					// Detect here if in prefix. If so, append
 					if ( prefix.hasOwnProperty( field ) ) {
-						fieldTxt = prefix[field]+":"+fieldTxt;
+						rawValue = prefix[field]+":"+rawValue;
 					}
 
+					var isRaw = rawFields.indexOf( field ) > -1;
+
 					if ( pagelink ) {
-						fieldTxt = fieldTxt.replace("#", "/");
+						var linkValue = String( rawValue ).replace("#", "/");
 
 						if ( prefixurl.hasOwnProperty( field ) ) {
-							url = prefixurl[field]+fieldTxt;
+							url = prefixurl[field]+linkValue;
 						}  else {
 
 							if ( prefixHash.hasOwnProperty( field ) ) {
-								url = assignUrlPrefix( prefixHash[field], result["fields"] )+fieldTxt;
+								url = assignUrlPrefix( prefixHash[field], result["fields"] )+linkValue;
 							} else {
 
-								url = mw.config.get( "wgArticlePath" ).replace('$1', fieldTxt );
+								url = mw.config.get( "wgArticlePath" ).replace('$1', linkValue );
 							}
 						}
 
+						fieldTxt = "<a href='" + url +"'>" + ( isRaw ? linkValue : escapeHtml( linkValue ) ) + "</a>";
+					} else if ( cleanpagelink ) {
 
-
-						fieldTxt = "<a href='" + url +"'>" + fieldTxt + "</a>";
-					}
-					if ( cleanpagelink ) {
-
-						fieldTxt = fieldTxt.replace("#", "/");
+						var linkValue2 = String( rawValue ).replace("#", "/");
 
 						if ( prefixurl.hasOwnProperty( field ) ) {
-							url = prefixurl[field]+fieldTxt;
+							url = prefixurl[field]+linkValue2;
 						} else {
 							if ( prefixHash.hasOwnProperty( field ) ) {
-								url = assignUrlPrefix( prefixHash[field], result["fields"] )+fieldTxt;
+								url = assignUrlPrefix( prefixHash[field], result["fields"] )+linkValue2;
 							} else {
 
-								url = mw.config.get( "wgArticlePath" ).replace('$1', fieldTxt );
+								url = mw.config.get( "wgArticlePath" ).replace('$1', linkValue2 );
 							}
 						}
 
-						fieldTxt = fieldTxt.replace(/\@\S+/, "");
-						fieldTxt = fieldTxt.replace(/^\S+\:/, "");
+						var cleanLabel = linkValue2.replace(/\@\S+/, "");
+						cleanLabel = cleanLabel.replace(/^\S+\:/, "");
 
-						fieldTxt = "<a href='" + url +"'>" + fieldTxt + "</a>";
+						fieldTxt = "<a href='" + url +"'>" + ( isRaw ? cleanLabel : escapeHtml( cleanLabel ) ) + "</a>";
+					} else {
+						fieldTxt = isRaw ? rawValue : escapeHtml( rawValue );
 					}
 				}
 			}
@@ -688,11 +740,11 @@
 
 
 
-(function( couchjsfunc, $, undefined ) {
+(function( opensearchjsfunc, $, undefined ) {
 
 
-    couchjsfunc.test = function( text ) {
+    opensearchjsfunc.test = function( text ) {
 		return "test";
     };
 
-}( window.couchjsfunc = window.couchjsfunc || {}, jQuery ));
+}( window.opensearchjsfunc = window.opensearchjsfunc || {}, jQuery ));

@@ -1,116 +1,154 @@
-Extension for performing CouchDB queries within a MediaWiki instance.
+Extension for querying OpenSearch indices within a MediaWiki instance.
+
+Formerly known as CouchDB_Query. See [docs/migration-from-couchdb.md](docs/migration-from-couchdb.md)
+if you are upgrading from the CouchDB-backed version.
 
 ## Requirements
 
 - MediaWiki 1.35 or later
-- CouchDB instance (optionally with CouchDB-Lucene or CouchDB Nouveau for full-text search)
+- An OpenSearch cluster (2.x or later)
 
 ## Installation
 
 1. Clone or download this extension into your MediaWiki `extensions/` directory:
 
    ```
-   git clone <repo-url> extensions/CouchDB_Query
+   git clone <repo-url> extensions/OpenSearch_Query
    ```
 
 2. Add the following to the **bottom** of your `LocalSettings.php`:
 
    ```php
-   wfLoadExtension( 'CouchDB_Query' );
+   wfLoadExtension( 'OpenSearch_Query' );
    ```
 
-3. Configure the CouchDB connection in `LocalSettings.php` after the `wfLoadExtension` line:
+3. Configure the OpenSearch connection in `LocalSettings.php` after the `wfLoadExtension` line:
 
    ```php
-   $wgCouchDB_Query['params']['db']['host']     = 'localhost';
-   $wgCouchDB_Query['params']['db']['port']     = 5984;
-   $wgCouchDB_Query['params']['db']['protocol'] = 'http';
-   $wgCouchDB_Query['params']['db']['username'] = 'myuser';
-   $wgCouchDB_Query['params']['db']['password'] = 'mypassword';
-   $wgCouchDB_Query['params']['db']['db']       = 'mydb';
+   $wgOpenSearch_Query['params']['mydb']['host']           = 'localhost';
+   $wgOpenSearch_Query['params']['mydb']['port']           = 9200;
+   $wgOpenSearch_Query['params']['mydb']['protocol']       = 'https';
+   $wgOpenSearch_Query['params']['mydb']['username']       = 'myuser';   // omit for an open cluster
+   $wgOpenSearch_Query['params']['mydb']['password']       = 'mypassword';
+   $wgOpenSearch_Query['params']['mydb']['timeout']        = 10;        // read timeout, seconds
+   $wgOpenSearch_Query['params']['mydb']['connectTimeout'] = 5;
    ```
 
-4. Define the CouchDB view/Lucene query paths your wiki will use:
+4. Define the named queries your wiki will use. A view-equivalent query names an index and the
+   field that plays the role of a CouchDB view key; a full-text query names an index and the
+   fields to search:
 
    ```php
-   $wgCouchDB_Query['queries']['mydb']['myview'] = '/mydb/_design/mydesign/_view/myview';
+   $wgOpenSearch_Query['queries']['mydb']['coords'] = [
+       'index'      => 'mydb-coords',      // OpenSearch index or alias
+       'keyfield'   => 'chrom.keyword',    // key / keys / startkey / endkey target
+       'groupfield' => 'chrom.keyword',    // optional: terms aggregation, exposed as `groups`
+       'filter'     => [ 'term' => [ 'type' => 'coord' ] ],  // optional constant filter
+       'sort'       => [ [ 'chrom.keyword' => 'asc' ] ],     // optional, defaults to keyfield asc
+       'source'     => [ 'chrom', 'start', 'end' ],          // optional _source includes
+   ];
+
+   $wgOpenSearch_Query['queries']['mydb']['text'] = [
+       'index'      => 'mydb-docs',
+       'textfields' => [ 'title^3', 'body' ],   // query_string fields, boosts allowed
+       'source'     => [ 'title', 'body', 'pagename' ],
+       'lenient'    => false,                    // true: don't error on query_string syntax
+       'allowLeadingWildcard' => false,
+   ];
+   ```
+
+   `queries[$db][$index]` also accepts a plain string, treated as `[ 'index' => <string> ]`, for
+   the simplest case.
+
+5. Single-document fetches (`#OpenSearch_Query_field`-style lookups by id) use a separate
+   connection block, since it is often a different index or cluster:
+
+   ```php
+   $wgOpenSearch_Query['document']['mydb'] = [
+       'host'     => 'localhost',
+       'port'     => 9200,
+       'protocol' => 'https',
+       'index'    => 'mydb-docs',
+   ];
+   ```
+
+6. When a hit's `_id` does not resolve to a MediaWiki page id (full-text results from a document
+   store keyed some other way), name the `_source` field to use as the page name instead:
+
+   ```php
+   $wgOpenSearch_Query['map']['mydb']['text']['pagename'] = 'title';
    ```
 
 ## Usage
 
-Once installed, two parser functions are available in wiki pages:
+Two parser functions are available in wiki pages:
 
-### `{{#CouchDB_Query_table:}}`
+### `{{#OpenSearch_Query_table:}}`
 
-Renders a dynamic table populated from a CouchDB view.
+Renders a dynamic table populated from an OpenSearch query.
 
 ```
-{{#CouchDB_Query_table: index=myview | db=mydb | limit=25 | fields=title,date }}
+{{#OpenSearch_Query_table: index=coords | db=mydb | type=opensearch-query | limit=25 | fields=start,end }}
 ```
 
 | Parameter | Description |
 |---|---|
-| `index` | CouchDB view/index name |
-| `db` | CouchDB database identifier |
+| `index` | Query name, resolved against `queries[$db]` |
+| `db` | Connection identifier, resolved against `params[$db]` (default: current wiki's DB name) |
+| `type` | API action to call: `opensearch-query` (view-equivalent) or `opensearch-search` (full text). The legacy `couchdb-query`, `couchdb-lucene-query`, `couchdb-nouveau-query` values still work. |
 | `limit` | Maximum rows to return (default: 25) |
-| `fields` | Comma-separated list of fields to display |
-| `query` | Query string filter |
-| `type` | Query type (`index` or `text` for Lucene) |
-| `header` | Column header label (default: `Page name`) |
+| `fields` | Comma-separated list of fields to display. Supports `*` (page name), `*link`, `#link` (link with `@...` and `Namespace:` stripped from the label), `*score`, `~field` (field rendered as a link), `#field` (as `~field`, but also strips `@...`/`Namespace:` from the label) |
+| `raw` | Comma-separated list of field names to render unescaped. All other field values are HTML-escaped by default |
+| `query` | Query template. `$1` is replaced with the current search text; `javascript:funcName` dispatches to `window.opensearchjsfunc.funcName(text)` (falls back to the legacy `window.couchjsfunc`) |
+| `text` | Initial value for the search input |
+| `start` / `end` | Passed through as `startkey` / `endkey` for view-equivalent queries |
+| `header` | Column header label(s), comma-separated (default: `Page name`) |
 | `class` | CSS class for the table (default: `wikitable sortable jquery-tablesorter`) |
-| `prefix` | Page name prefix filter |
-| `full` | Set to `1` to include full document data |
+| `prefix` | `field:value,...` - prepends `value:` to the named field before display |
+| `prefixurl` | `field:urlbase,...` - link base to use for `~field` / `#field` |
+| `prefixcondurl` | `field:otherfield@value=urlbase,...` - link base for `~field` / `#field`, chosen by the value of another field in the same result |
+| `extra` | Comma-separated list of CSS selectors pointing at `{{#OpenSearch_Query_field}}` elements elsewhere on the page whose values are appended to the query |
+| `full` | Set to `1` to retrieve the complete result set (paged internally via `search_after`) and paginate client-side |
 
-### `{{#CouchDB_Query_field:}}`
+### `{{#OpenSearch_Query_field:}}`
 
-Renders an input field wired to a CouchDB query table.
+Renders an input field that can be wired into a table's `extra` list.
 
 ```
-{{#CouchDB_Query_field: tag=input | type=text | query=myview | id=myfield }}
+{{#OpenSearch_Query_field: tag=input | type=text | query=field:$1 | id=myfield }}
 ```
 
 | Parameter | Description |
 |---|---|
 | `tag` | HTML tag to render (`input`, `select`, etc.) |
 | `type` | Input type attribute |
-| `query` | Query name this field targets |
-| `values` | Predefined values (for select fields) |
+| `query` | Query fragment substituted with this field's value and appended to the parent table's query |
+| `values` | Predefined values, comma-separated (for `select`) |
 | `id` | Element ID |
-| `class` | CSS class |
-| `default` | Default value |
+| `class` | CSS class (currently not applied to the rendered element - see docs/migration-from-couchdb.md) |
+| `default` | Default selected value (for `select`) |
 
 ## API Modules
 
-The extension exposes three API modules:
-
 | Module | Action | Description |
 |---|---|---|
-| `couchdb-query` | `api.php?action=couchdb-query` | Query a CouchDB view/index |
-| `couchdb-lucene-query` | `api.php?action=couchdb-lucene-query` | Full-text search via CouchDB-Lucene |
-| `couchdb-nouveau-query` | `api.php?action=couchdb-nouveau-query` | Full-text search via CouchDB Nouveau (3.4+) |
-| `couchdb-document` | `api.php?action=couchdb-document` | Retrieve a single CouchDB document |
+| `opensearch-query` | `api.php?action=opensearch-query` | View-equivalent query: `key` / `keys` / `startkey` / `endkey` against `keyfield` |
+| `opensearch-search` | `api.php?action=opensearch-search` | Full-text `query_string` search over `textfields` |
+| `opensearch-document` | `api.php?action=opensearch-document` | Retrieve a single document by id |
+| `couchdb-query`, `couchdb-lucene-query`, `couchdb-nouveau-query`, `couchdb-document` | same paths | Deprecated aliases of the above, kept for existing callers. Marked `isDeprecated()`. |
 
-### Upgrading: CouchDB Nouveau support
+`opensearch-query` params: `index`, `db`, `key`, `keys` (JSON array), `startkey`, `endkey`, `fields`,
+`limit`, `skip`, `include_docs`. Response: `{ status, count, results[], groups[]? }`, each result
+`{ id, pagename, fields }`.
 
-CouchDB Nouveau (the replacement for CouchDB-Lucene shipped from CouchDB 3.4 onwards) is now supported alongside the existing Lucene endpoint. No config-schema changes are needed; point `queries[$db][$index]` at the Nouveau path instead of the Lucene `_fti` path:
+`opensearch-search` params: `index`, `db`, `q`, `limit`, `skip`, `sort`, `full`. Response:
+`{ status, count, results[], warning? }`, each result `{ id, score, pagename, fields }`. A
+malformed `q` (e.g. partially typed `query_string` syntax) yields `count: 0` plus a `warning`,
+not an API error.
 
-```php
-// Lucene (legacy)
-$wgCouchDB_Query['queries']['mydb']['text'] = '/_fti/local/mydb/_design/luceneindex/by_text';
-
-// Nouveau (CouchDB 3.4+)
-$wgCouchDB_Query['queries']['mydb']['text'] = '/mydb/_design/mydesign/_nouveau/by_text';
-```
-
-Then hit `action=couchdb-nouveau-query` instead of `action=couchdb-lucene-query`. The response shape (`status`, `count`, `results[*].{id,score,pagename,fields}`) is normalised to match the Lucene module, so consumers do not need to change.
-
-Notes:
-- Nouveau does not support `skip`; pagination is bookmark-based. The current JS Next/Prev controls still use offset arithmetic and have not yet been adapted for Nouveau bookmarks.
-- Supported request params: `q`, `limit`, `sort`, `include_docs`, `full`.
+`opensearch-document` params: `db`, `key`. Response: `{ status, count, results[] }`, the single
+result being the document's `_source` flattened alongside its `_id`.
 
 ### TODO
 
-* Refactor common functions
-* Simplify parameters
-* Document how this works
-* Migrate Javascript function to use PouchDB
+* Migrate JavaScript to use a proper OpenSearch JS client instead of hand-built query_string

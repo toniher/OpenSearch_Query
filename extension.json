@@ -1,43 +1,50 @@
 {
-	"name": "CouchDB_Query",
-	"version": "0.2.0",
+	"name": "OpenSearch_Query",
+	"version": "1.0.0",
 	"author": [ "Toniher" ],
 	"url": "https://www.mediawiki.org/wiki/User:Toniher",
-	"descriptionmsg": "CouchDB_Query-desc",
+	"descriptionmsg": "OpenSearch_Query-desc",
 	"license-name": "GPL-2.0-or-later",
 	"type": "parserhook",
 	"requires": {
 		"MediaWiki": ">= 1.35.0"
 	},
 	"AutoloadClasses": {
-		"CouchDB_Query": "CouchDB_Query_body.php",
-		"CouchDB_Lucene": "includes/CouchDB_Lucene.php",
-		"CouchDB_Nouveau": "includes/CouchDB_Nouveau.php",
-		"CouchDB_Index": "includes/CouchDB_Index.php",
-		"CouchDB_Document": "includes/CouchDB_Document.php",
-		"ApiCouchDB_Query": "CouchDB_Query.api.couchdb.php",
-		"ApiCouchDB_Query_Lucene": "CouchDB_Query.api.couchdb.lucene.php",
-		"ApiCouchDB_Query_Nouveau": "CouchDB_Query.api.couchdb.nouveau.php",
-		"ApiCouchDB_Document": "CouchDB_Query.api.couchdb.document.php",
-		"CouchDB_QueryHooks": "includes/CouchDB_QueryHooks.php"
+		"OpenSearch_Query": "includes/OpenSearch_Query.php",
+		"OpenSearch_QueryHooks": "includes/OpenSearch_QueryHooks.php",
+		"OpenSearch_Connection": "includes/OpenSearch_Connection.php",
+		"OpenSearch_QueryBuilder": "includes/OpenSearch_QueryBuilder.php",
+		"OpenSearch_Index": "includes/OpenSearch_Index.php",
+		"OpenSearch_Search": "includes/OpenSearch_Search.php",
+		"OpenSearch_Document": "includes/OpenSearch_Document.php",
+		"ApiOpenSearch_Query": "includes/Api/ApiOpenSearch_Query.php",
+		"ApiOpenSearch_Search": "includes/Api/ApiOpenSearch_Search.php",
+		"ApiOpenSearch_Document": "includes/Api/ApiOpenSearch_Document.php",
+		"ApiCouchDB_Query": "includes/Api/ApiCouchDB_Query.php",
+		"ApiCouchDB_Query_Lucene": "includes/Api/ApiCouchDB_Query_Lucene.php",
+		"ApiCouchDB_Query_Nouveau": "includes/Api/ApiCouchDB_Query_Nouveau.php",
+		"ApiCouchDB_Document": "includes/Api/ApiCouchDB_Document.php"
 	},
 	"MessagesDirs": {
-		"CouchDB_Query": [ "i18n" ]
+		"OpenSearch_Query": [ "i18n" ]
 	},
 	"ExtensionMessagesFiles": {
-		"CouchDB_QueryMagic": "CouchDB_Query.i18n.magic.php"
+		"OpenSearch_QueryMagic": "OpenSearch_Query.i18n.magic.php"
 	},
 	"Hooks": {
-		"ParserFirstCallInit": "CouchDB_QueryHooks::onParserFirstCallInit"
+		"ParserFirstCallInit": "OpenSearch_QueryHooks::onParserFirstCallInit"
 	},
 	"APIModules": {
+		"opensearch-query": "ApiOpenSearch_Query",
+		"opensearch-search": "ApiOpenSearch_Search",
+		"opensearch-document": "ApiOpenSearch_Document",
 		"couchdb-query": "ApiCouchDB_Query",
 		"couchdb-lucene-query": "ApiCouchDB_Query_Lucene",
 		"couchdb-nouveau-query": "ApiCouchDB_Query_Nouveau",
 		"couchdb-document": "ApiCouchDB_Document"
 	},
 	"ResourceModules": {
-		"ext.CouchDB_Query": {
+		"ext.OpenSearch_Query": {
 			"scripts": [ "libs/main.js" ],
 			"styles": [ "styles/main.less" ],
 			"dependencies": [ "jquery.tablesorter" ]
@@ -45,25 +52,48 @@
 	},
 	"ResourceFileModulePaths": {
 		"localBasePath": "",
-		"remoteExtPath": "CouchDB_Query"
+		"remoteExtPath": "OpenSearch_Query"
 	},
 	"config": {
-		"CouchDB_Query": {
+		"OpenSearch_Query": {
 			"value": {
 				"params": {
 					"db": {
-						"username": "username",
-						"password": "password",
 						"host": "host",
-						"protocol": "http",
-						"port": 80,
-						"db": ""
+						"port": 9200,
+						"protocol": "https",
+						"username": "",
+						"password": "",
+						"timeout": 10,
+						"connectTimeout": 5
 					}
 				},
 				"queries": {
 					"db": {
-						"text": "/_fti/local/db/_design/luceneindex/by_text",
-						"coords": "/db/_design/search/_view/coords"
+						"text": {
+							"index": "mydb-docs",
+							"textfields": [ "title^3", "body" ],
+							"source": [ "title", "body", "pagename" ]
+						},
+						"coords": {
+							"index": "mydb-coords",
+							"keyfield": "chrom.keyword"
+						}
+					}
+				},
+				"document": {
+					"db": {
+						"host": "host",
+						"port": 9200,
+						"protocol": "https",
+						"index": "mydb-docs"
+					}
+				},
+				"map": {
+					"db": {
+						"text": {
+							"pagename": "title"
+						}
 					}
 				}
 			}
