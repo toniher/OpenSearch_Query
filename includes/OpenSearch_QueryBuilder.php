@@ -76,8 +76,11 @@ class OpenSearch_QueryBuilder {
 	}
 
 	/**
-	 * Full-text query_string search over textfields. Always sorts by score then _id so search_after
-	 * paging (full=1) has a deterministic, unique last key.
+	 * Full-text query_string search over textfields. Always sorts by score then id so search_after
+	 * paging (full=1) has a deterministic, unique last key. Uses the mapped `id` keyword field
+	 * rather than `_id`: `_id` has no doc_values, so sorting on it forces OpenSearch to build an
+	 * index-wide fielddata cache that blows the fielddata circuit breaker once the index is large
+	 * (every import script sets `id` == `_id`, so this is an equivalent, cheap tiebreaker).
 	 */
 	public static function buildSearchQuery( array $params, array $queryConfig ) {
 
@@ -108,7 +111,7 @@ class OpenSearch_QueryBuilder {
 			'track_total_hits' => true,
 			'sort' => [
 				[ '_score' => 'desc' ],
-				[ '_id' => 'asc' ],
+				[ 'id' => 'asc' ],
 			],
 		];
 
