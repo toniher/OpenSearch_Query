@@ -5,7 +5,7 @@ class OpenSearch_Search {
 	private const DEFAULT_MAX_FULL_PAGES = 25;
 
 	/**
-	 * @param array $params request params: index, db, q, limit, skip, sort, full
+	 * @param array $params request params: index, db, q, limit, skip, sort, full, aggs
 	 * @return array{ok:bool,httpCode:int,data:mixed,error:?string,warning:?string}|null
 	 */
 	public static function processIndex( array $params ) {
@@ -17,6 +17,23 @@ class OpenSearch_Search {
 
 		$connectionParams = OpenSearch_Connection::resolveConnectionParams( 'params', $params['db'] );
 		$path = '/' . $queryConfig['index'] . '/_search';
+
+		if ( ! empty( $params['aggs'] ) ) {
+			if ( empty( $queryConfig['aggs'] ) ) {
+				return [ 'ok' => false, 'httpCode' => 0, 'data' => null, 'error' => 'aggs-not-allowed', 'warning' => null ];
+			}
+			$aggs = json_decode( $params['aggs'], true );
+			// Re-encoded so \u-escapes can't hide it: no scripts of any kind (script, scripted_metric, ...).
+			if ( ! is_array( $aggs ) || ! $aggs || stripos( json_encode( $aggs ), 'script' ) !== false ) {
+				return [ 'ok' => false, 'httpCode' => 0, 'data' => null, 'error' => 'aggs-invalid', 'warning' => null ];
+			}
+			$dsl = OpenSearch_QueryBuilder::buildSearchQuery( $params, $queryConfig );
+			// Buckets only: size 0 also lets OpenSearch serve repeats from its shard request cache.
+			unset( $dsl['sort'], $dsl['_source'], $dsl['from'] );
+			$dsl['size'] = 0;
+			$dsl['aggs'] = $aggs;
+			return self::guardParseError( OpenSearch_Connection::request( $connectionParams, $path, 'POST', $dsl ) );
+		}
 
 		if ( empty( $params['full'] ) ) {
 			$dsl = OpenSearch_QueryBuilder::buildSearchQuery( $params, $queryConfig );

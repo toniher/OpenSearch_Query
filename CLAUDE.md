@@ -78,6 +78,8 @@ Request flow has two entry points that share the same backend helpers:
      recursion), capped by `queries[$db][$index]['maxFullPages']` (default 25, was a hardcoded 25).
      A `query_string` parse error (e.g. a debounced, partially-typed `foo AND`) is turned into
      `count: 0` plus a `warning`, not a hard API failure.
+     `aggs=<json>` (only for queries configured with `'aggs' => true`, no `script` anywhere)
+     short-circuits to one `size: 0` request and returns `aggregations` alongside `results`.
    - `ApiOpenSearch_Document` (`opensearch-document`) → `OpenSearch_Document::processDocument` →
      `GET /<index>/_doc/<id>`, using the separate `document[$db]` connection block. A 404 becomes
      `count: 0`, not a decode failure.

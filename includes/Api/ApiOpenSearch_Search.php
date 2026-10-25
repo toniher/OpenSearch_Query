@@ -76,6 +76,10 @@ class ApiOpenSearch_Search extends ApiBase {
 		$result->setIndexedTagName( $results, 'result' );
 		$result->addValue( $this->getModuleName(), 'results', $results );
 
+		if ( isset( $data->aggregations ) ) {
+			$result->addValue( $this->getModuleName(), 'aggregations', json_decode( json_encode( $data->aggregations ), true ) );
+		}
+
 		return true;
 	}
 
@@ -93,6 +97,7 @@ class ApiOpenSearch_Search extends ApiBase {
 			'skip' => [ ApiBase::PARAM_TYPE => 'integer', ApiBase::PARAM_REQUIRED => false ],
 			'sort' => [ ApiBase::PARAM_TYPE => 'string', ApiBase::PARAM_REQUIRED => false ],
 			'full' => [ ApiBase::PARAM_TYPE => 'boolean', ApiBase::PARAM_REQUIRED => false ],
+			'aggs' => [ ApiBase::PARAM_TYPE => 'string', ApiBase::PARAM_REQUIRED => false ],
 		];
 	}
 

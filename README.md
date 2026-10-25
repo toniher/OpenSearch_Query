@@ -141,10 +141,15 @@ Renders an input field that can be wired into a table's `extra` list.
 `limit`, `skip`, `include_docs`. Response: `{ status, count, results[], groups[]? }`, each result
 `{ id, pagename, fields }`.
 
-`opensearch-search` params: `index`, `db`, `q`, `limit`, `skip`, `sort`, `full`. Response:
+`opensearch-search` params: `index`, `db`, `q`, `limit`, `skip`, `sort`, `full`, `aggs`. Response:
 `{ status, count, results[], warning? }`, each result `{ id, score, pagename, fields }`. A
 malformed `q` (e.g. partially typed `query_string` syntax) yields `count: 0` plus a `warning`,
 not an API error.
+
+`aggs` (optional, JSON object) adds an OpenSearch `aggs` body to the search and returns its raw
+result under `aggregations` (no hits: `size` is forced to 0, so repeats are served from the shard
+request cache). Only named queries with `'aggs' => true` accept it (`aggs-not-allowed`
+otherwise); anything mentioning `script` is refused (`aggs-invalid`).
 
 `opensearch-document` params: `db`, `key`. Response: `{ status, count, results[] }`, the single
 result being the document's `_source` flattened alongside its `_id`.
